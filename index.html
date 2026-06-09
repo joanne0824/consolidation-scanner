@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台股盤整追蹤</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0f14;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 16px;
+  }
+  .header {
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 16px;
+    margin-bottom: 20px;
+  }
+  .title { font-size: 20px; font-weight: 700; color: #cc8cff; }
+  .subtitle { font-size: 12px; color: #666; margin-top: 4px; }
+  .update-time { font-size: 11px; color: #555; margin-top: 8px; }
+  .no-data { color: #666; text-align: center; padding: 40px; }
+
+  /* 區塊標題 */
+  .section-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px; margin-top: 24px;
+  }
+  .section-header:first-of-type { margin-top: 0; }
+  .section-label {
+    font-size: 13px; font-weight: 700;
+    padding: 4px 12px; border-radius: 20px;
+  }
+  .label-strict {
+    background: rgba(204,140,255,0.15);
+    color: #cc8cff;
+    border: 1px solid rgba(204,140,255,0.3);
+  }
+  .label-loose {
+    background: rgba(100,100,100,0.2);
+    color: #aaa;
+    border: 1px solid rgba(100,100,100,0.3);
+  }
+  .section-count { font-size: 12px; color: #555; }
+
+  /* 卡片 */
+  .card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-strict { border-left: 3px solid rgba(204,140,255,0.5); }
+  .card-loose  { border-left: 3px solid rgba(100,100,100,0.3); }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .stock-name { font-size: 16px; font-weight: 700; color: #fff; }
+  .stock-code { font-size: 12px; color: #888; margin-top: 2px; }
+
+  /* 位置標籤 */
+  .zone-badge {
+    font-size: 12px; font-weight: 700;
+    padding: 4px 10px; border-radius: 20px;
+  }
+  .zone-bottom { background: rgba(105,219,124,0.15); color: #69db7c; border: 1px solid rgba(105,219,124,0.3); }
+  .zone-mid    { background: rgba(78,168,222,0.15);  color: #4ea8de; border: 1px solid rgba(78,168,222,0.3); }
+  .zone-top    { background: rgba(255,200,0,0.15);   color: #ffd43b; border: 1px solid rgba(255,200,0,0.3); }
+
+  /* 指標格 */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 12px;
+  }
+  .metric {
+    background: rgba(255,255,255,0.04);
+    border-radius: 8px; padding: 8px; text-align: center;
+  }
+  .metric-label { font-size: 10px; color: #666; margin-bottom: 4px; }
+  .metric-value { font-size: 14px; font-weight: 700; }
+  .positive { color: #69db7c; }
+  .negative { color: #ff6b6b; }
+  .neutral  { color: #e0e0e0; }
+  .warning  { color: #ffd43b; }
+  .purple   { color: #cc8cff; }
+
+  /* 區間視覺化 */
+  .range-bar-wrap {
+    margin-bottom: 12px;
+  }
+  .range-label {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: #666; margin-bottom: 4px;
+  }
+  .range-bar {
+    background: rgba(255,255,255,0.06);
+    border-radius: 4px; height: 8px;
+    position: relative; overflow: hidden;
+  }
+  .range-fill {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #69db7c, #4ea8de);
+    transition: width 0.3s;
+  }
+  .range-marker {
+    position: absolute; top: -2px;
+    width: 3px; height: 12px;
+    background: #fff; border-radius: 2px;
+  }
+
+  /* 均線區 */
+  .ma-row {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .ma-item {
+    font-size: 11px; padding: 3px 8px;
+    border-radius: 6px; background: rgba(255,255,255,0.05);
+    color: #aaa;
+  }
+
+  .divider { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="title">台股盤整追蹤</div>
+  <div class="subtitle">均線糾結 · 量縮蓄勢 · 進場位置分析</div>
+  <div class="update-time" id="update-time">載入中...</div>
+</div>
+
+<div id="content">
+  <div class="no-data">載入資料中...</div>
+</div>
+
+<script>
+fetch('data.json?t=' + Date.now())
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('update-time').textContent =
+      '更新時間：' + data.update_time;
+
+    const content = document.getElementById('content');
+
+    const renderCards = (stocks, cardClass) => stocks.map(s => {
+      const zone     = s['盤整位置'];
+      const zoneClass = zone==='下緣' ? 'zone-bottom' : zone==='上緣' ? 'zone-top' : 'zone-mid';
+      const zoneText  = zone==='下緣' ? '▼ 下緣' : zone==='上緣' ? '▲ 上緣' : '● 中段';
+
+      const high   = parseFloat(s['區間上緣']);
+      const low    = parseFloat(s['區間下緣']);
+      const close  = parseFloat(s['收盤價']);
+      const posPct = high > low ? ((close - low) / (high - low) * 100).toFixed(0) : 50;
+
+      const volClass  = parseFloat(s['量縮比']) < 0.6 ? 'positive' :
+                        parseFloat(s['量縮比']) < 0.8 ? 'neutral'  : 'warning';
+      const maClass   = parseFloat(s['均線糾結%']) < 2 ? 'positive' :
+                        parseFloat(s['均線糾結%']) < 4 ? 'neutral'  : 'warning';
+      const volPct    = parseFloat(s['波動%']||s['20日波動%']);
+      const volPctClass = volPct < 8 ? 'positive' : volPct < 12 ? 'neutral' : 'warning';
+
+      return `
+      <div class="card ${cardClass}">
+        <div class="card-header">
+          <div>
+            <div class="stock-name">${s['名稱']}</div>
+            <div class="stock-code">${s['代碼']}</div>
+          </div>
+          <span class="zone-badge ${zoneClass}">${zoneText}</span>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <div class="metric-label">收盤價</div>
+            <div class="metric-value neutral">${s['收盤價']}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">波動幅度</div>
+            <div class="metric-value ${volPctClass}">${s['20日波動%']}%</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">均線糾結</div>
+            <div class="metric-value ${maClass}">${s['均線糾結%']}%</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">量縮比</div>
+            <div class="metric-value ${volClass}">${s['量縮比']}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">區間上緣</div>
+            <div class="metric-value warning">${s['區間上緣']}</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">區間下緣</div>
+            <div class="metric-value neutral">${s['區間下緣']}</div>
+          </div>
+        </div>
+
+        <div class="range-bar-wrap">
+          <div class="range-label">
+            <span>下緣 ${s['區間下緣']}</span>
+            <span>現價位置 ${posPct}%</span>
+            <span>上緣 ${s['區間上緣']}</span>
+          </div>
+          <div class="range-bar">
+            <div class="range-fill" style="width:100%"></div>
+            <div class="range-marker" style="left:calc(${posPct}% - 1px)"></div>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="ma-row">
+          <span class="ma-item">5MA ${s['5MA']}</span>
+          <span class="ma-item">20MA ${s['20MA']}</span>
+          <span class="ma-item">60MA ${s['60MA']}</span>
+          <span class="ma-item">月均量 ${Math.round(s['月均量張'])}張</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    const strict = data.strict || [];
+    const loose  = data.loose  || [];
+
+    content.innerHTML = `
+      <div class="section-header">
+        <span class="section-label label-strict">精選盤整</span>
+        <span class="section-count">${strict.length} 檔｜波動<10% 糾結<5%</span>
+      </div>
+      ${strict.length > 0
+        ? renderCards(strict, 'card-strict')
+        : '<div class="no-data" style="padding:20px">今日無精選盤整股</div>'
+      }
+
+      <div class="section-header">
+        <span class="section-label label-loose">觀察名單</span>
+        <span class="section-count">${loose.length} 檔｜波動<15% 糾結<8%</span>
+      </div>
+      ${loose.length > 0
+        ? renderCards(loose, 'card-loose')
+        : '<div class="no-data" style="padding:20px">今日無觀察名單</div>'
+      }
+    `;
+  })
+  .catch(() => {
+    document.getElementById('update-time').textContent = '尚無資料';
+    document.getElementById('content').innerHTML =
+      '<div class="no-data">尚未有今日資料，請稍後再試</div>';
+  });
+</script>
+</body>
+</html>
